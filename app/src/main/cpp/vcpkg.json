@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "flyingmouse-android",
+  "version": "1.0.0",
+  "description": "FlyingMouse - air mouse via USB/IP virtual device",
+  "dependencies": [
+    "asio",
+    "spdlog"
+  ]
+}
