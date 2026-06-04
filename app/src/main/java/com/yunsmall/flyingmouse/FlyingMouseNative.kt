@@ -42,6 +42,23 @@ object FlyingMouseNative {
     object HID {
         const val KEY_LEFT = 0x50; const val KEY_RIGHT = 0x4F
         const val KEY_UP = 0x52; const val KEY_DOWN = 0x51
+        const val KEY_ENTER = 0x28; const val KEY_ESC = 0x29
+        const val KEY_BACKSPACE = 0x2A; const val KEY_TAB = 0x2B
+        const val KEY_SPACE = 0x2C; const val KEY_CAPSLOCK = 0x39
+        const val KEY_DELETE = 0x4C; const val KEY_HOME = 0x4A
+        const val KEY_END = 0x4D; const val KEY_PAGEUP = 0x4B; const val KEY_PAGEDOWN = 0x4E
+        const val KEY_INSERT = 0x49
+        // symbols
+        const val KEY_MINUS = 0x2D; const val KEY_EQUAL = 0x2E
+        const val KEY_LEFTBRACE = 0x2F; const val KEY_RIGHTBRACE = 0x30
+        const val KEY_BACKSLASH = 0x31; const val KEY_SEMICOLON = 0x33
+        const val KEY_QUOTE = 0x34; const val KEY_COMMA = 0x36
+        const val KEY_PERIOD = 0x37; const val KEY_SLASH = 0x38
         const val MOD_LEFT_CTRL = 0x01; const val MOD_LEFT_SHIFT = 0x02
+        const val MOD_LEFT_ALT = 0x04; const val MOD_LEFT_GUI = 0x08
+        // USB HID keycodes for letters a-z: 0x04-0x1D
+        val LETTERS = (0..25).map { 0x04 + it }
+        // USB HID keycodes for numbers 1-9,0: 0x1E-0x27
+        val NUMBERS = listOf(0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27)
     }
 }
