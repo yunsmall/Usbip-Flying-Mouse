@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">飞鼠</string>
+    <string name="server_running_title">服务器运行中</string>
+    <string name="server_stopped_title">服务器已停止</string>
+    <string name="port">端口</string>
+    <string name="start">启动</string>
+    <string name="stop">停止</string>
+    <string name="starting">启动中…</string>
+    <string name="stopping">停止中…</string>
+    <string name="server_address_hint">连接: usbip attach -r %1$s -b 1-1</string>
+    <string name="failed_to_start">启动失败</string>
+    <string name="start_prompt">启动服务器以开始\n控制你的电脑</string>
+    <string name="motion">飞鼠</string>
+    <string name="settings">设置</string>
+    <string name="language">语言</string>
+    <string name="sensitivity">灵敏度</string>
+    <string name="tap_drag_timeout">点击拖拽超时</string>
+    <string name="deadzone">移动死区</string>
+    <string name="tap_tolerance">拖拽容差</string>
+    <string name="click_duration">点击时长</string>
+    <string name="ok">确定</string>
+    <string name="touchpad">触摸板</string>
+    <string name="touchpad_hint">单指移动/点击拖拽  双指右键  三指滚轮</string>
+    <string name="close">关闭</string>
+</resources>

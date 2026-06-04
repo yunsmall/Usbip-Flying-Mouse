@@ -15,8 +15,11 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -51,6 +54,46 @@ object DPadKeys {
     const val RIGHT = 0x4F
 }
 
+object AppSettings {
+    private const val PREFS = "flying_mouse_settings"
+    private const val KEY_SENSITIVITY = "sensitivity"
+    private const val KEY_TAP_TIMEOUT = "tap_drag_timeout"
+    private const val KEY_LANGUAGE = "language"
+    private const val KEY_DEADZONE = "deadzone"
+    private const val KEY_TAP_TOLERANCE = "tap_tolerance"
+    private const val KEY_CLICK_DURATION = "click_duration"
+    private const val KEY_PORT = "port"
+
+    data class Settings(
+        val sensitivity: Float, val tapTimeout: Int, val language: String,
+        val deadzone: Float = 2f, val tapTolerance: Float = 60f,
+        val clickDuration: Int = 60, val port: Int = 3240)
+
+    fun load(context: Context): Settings {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return Settings(
+            sensitivity = p.getFloat(KEY_SENSITIVITY, 2.0f),
+            tapTimeout = p.getInt(KEY_TAP_TIMEOUT, 400),
+            language = p.getString(KEY_LANGUAGE, "zh") ?: "zh",
+            deadzone = p.getFloat(KEY_DEADZONE, 2f),
+            tapTolerance = p.getFloat(KEY_TAP_TOLERANCE, 60f),
+            clickDuration = p.getInt(KEY_CLICK_DURATION, 60),
+            port = p.getInt(KEY_PORT, 3240))
+    }
+
+    fun save(context: Context, s: Settings) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putFloat(KEY_SENSITIVITY, s.sensitivity)
+            .putInt(KEY_TAP_TIMEOUT, s.tapTimeout)
+            .putString(KEY_LANGUAGE, s.language)
+            .putFloat(KEY_DEADZONE, s.deadzone)
+            .putFloat(KEY_TAP_TOLERANCE, s.tapTolerance)
+            .putInt(KEY_CLICK_DURATION, s.clickDuration)
+            .putInt(KEY_PORT, s.port).apply()
+    }
+
+}
+
 class MainActivity : ComponentActivity() {
 
     private val serviceState = mutableStateOf<FlyingMouseService?>(null)
@@ -65,6 +108,16 @@ class MainActivity : ComponentActivity() {
             serviceState.value = null
             serviceBound = false
         }
+    }
+
+    override fun attachBaseContext(newBase: Context) {
+        val lang = newBase.getSharedPreferences("flying_mouse_settings", Context.MODE_PRIVATE)
+            .getString("language", "zh") ?: "zh"
+        val locale = if (lang == "en") java.util.Locale("en") else java.util.Locale("zh")
+        java.util.Locale.setDefault(locale)
+        val config = Configuration(newBase.resources.configuration)
+        config.setLocale(locale)
+        super.attachBaseContext(newBase.createConfigurationContext(config))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,18 +138,32 @@ class MainActivity : ComponentActivity() {
 fun FlyingMouseApp(service: FlyingMouseService?) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val initSettings = remember { AppSettings.load(context) }
     var serverRunning by remember { mutableStateOf(false) }
-    var port by rememberSaveable { mutableStateOf("3240") }
+    var port by rememberSaveable { mutableStateOf(initSettings.port.toString()) }
     var isBusy by remember { mutableStateOf(false) }
     var motionEnabled by rememberSaveable { mutableStateOf(true) }
-    var sensitivity by rememberSaveable { mutableFloatStateOf(2.0f) }
+    var sensitivity by rememberSaveable { mutableFloatStateOf(initSettings.sensitivity) }
+    var tapDragTimeout by rememberSaveable { mutableIntStateOf(initSettings.tapTimeout) }
+    var deadzone by rememberSaveable { mutableFloatStateOf(initSettings.deadzone) }
+    var tapTolerance by rememberSaveable { mutableFloatStateOf(initSettings.tapTolerance) }
+    var clickDuration by rememberSaveable { mutableIntStateOf(initSettings.clickDuration) }
     var showKeyboard by rememberSaveable { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     val ipAddress = remember { mutableStateOf<String?>(null) }
     var leftPressed by remember { mutableStateOf(false) }
     var rightPressed by remember { mutableStateOf(false) }
     var middlePressed by remember { mutableStateOf(false) }
+    val currentLang = initSettings.language
 
-    MotionSensorEffect(serverRunning && motionEnabled, sensitivity)
+    // persist settings when changed
+    val portInt = port.toIntOrNull() ?: 3240
+    LaunchedEffect(sensitivity, tapDragTimeout, deadzone, tapTolerance, clickDuration, port) {
+        AppSettings.save(context,
+            AppSettings.Settings(sensitivity, tapDragTimeout, currentLang, deadzone, tapTolerance, clickDuration, portInt))
+    }
+
+    MotionSensorEffect(serverRunning && motionEnabled && !showKeyboard, sensitivity)
 
     LaunchedEffect(service) {
         service?.let {
@@ -122,7 +189,7 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                     val ok = svc.startServer(p)
                     withContext(Dispatchers.Main) {
                         if (ok) { serverRunning = true; ipAddress.value = getIpAddress() }
-                        else Toast.makeText(context, "Failed to start", Toast.LENGTH_SHORT).show()
+                        else Toast.makeText(context, context.getString(R.string.failed_to_start), Toast.LENGTH_SHORT).show()
                     }
                 }
                 withContext(Dispatchers.Main) { isBusy = false }
@@ -138,7 +205,7 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                 CompactTopBar(serverRunning, isBusy, port, ipAddress.value,
                     onToggleServer, { port = it },
                     onCloseKeyboard = { showKeyboard = false },
-                    motionEnabled, { motionEnabled = it })
+                    onSettingsClick = { showSettings = true })
             } else {
                 ServerCard(serverRunning, isBusy, port, ipAddress.value,
                     onPortChange = { port = it },
@@ -150,11 +217,16 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                     ConnectionHint(ipAddress.value, port)
                     MotionControlBar(motionEnabled, { motionEnabled = it },
                         sensitivity, { sensitivity = it },
-                        showKeyboard, { showKeyboard = !showKeyboard })
+                        showKeyboard, { showKeyboard = !showKeyboard },
+                        onSettingsClick = { showSettings = true })
                 }
                 if (showKeyboard) {
-                    Spacer(Modifier.weight(1f))
-                    KeyboardSheet(Modifier.fillMaxWidth())
+                    if (isLandscape) {
+                        KeyboardSheet(Modifier.fillMaxWidth().weight(1f))
+                    } else {
+                        TouchpadArea(Modifier.fillMaxWidth().weight(1f), tapDragTimeout, deadzone, tapTolerance, clickDuration)
+                        KeyboardSheet(Modifier.fillMaxWidth())
+                    }
                 } else {
                     Column(
                         modifier = Modifier.fillMaxWidth().weight(1f),
@@ -190,12 +262,29 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                 }
             } else {
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("Start the server to begin\ncontrolling your PC",
+                    Text(stringResource(R.string.start_prompt),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center)
                 }
             }
+        }
+
+        if (showSettings) {
+            SettingsDialog(
+                sensitivity = sensitivity,
+                tapDragTimeout = tapDragTimeout,
+                deadzone = deadzone,
+                tapTolerance = tapTolerance,
+                clickDuration = clickDuration,
+                port = port,
+                onSensitivityChange = { sensitivity = it },
+                onTapDragTimeoutChange = { tapDragTimeout = it },
+                onDeadzoneChange = { deadzone = it },
+                onTapToleranceChange = { tapTolerance = it },
+                onClickDurationChange = { clickDuration = it },
+                onPortChange = { port = it },
+                onDismiss = { showSettings = false })
         }
     }
 }
@@ -212,7 +301,8 @@ fun ServerCard(serverRunning: Boolean, isBusy: Boolean, port: String, ipAddress:
             Box(Modifier.size(12.dp).clip(CircleShape)
                 .background(if (serverRunning) Color(0xFF4CAF50) else Color(0xFF757575)))
             Column(Modifier.weight(1f)) {
-                Text(if (serverRunning) "Server Running" else "Server Stopped",
+                Text(if (serverRunning) stringResource(R.string.server_running_title)
+                     else stringResource(R.string.server_stopped_title),
                     style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 if (serverRunning && ipAddress != null)
                     Text("$ipAddress:${port.toIntOrNull() ?: 3240}",
@@ -220,7 +310,7 @@ fun ServerCard(serverRunning: Boolean, isBusy: Boolean, port: String, ipAddress:
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             OutlinedTextField(value = port, onValueChange = { onPortChange(it.filter { c -> c.isDigit() }) },
-                label = { Text("Port") }, modifier = Modifier.width(80.dp), singleLine = true,
+                label = { Text(stringResource(R.string.port)) }, modifier = Modifier.width(80.dp), singleLine = true,
                 enabled = !serverRunning && !isBusy)
             Button(onClick = onToggleServer, enabled = !isBusy,
                 colors = ButtonDefaults.buttonColors(
@@ -230,18 +320,98 @@ fun ServerCard(serverRunning: Boolean, isBusy: Boolean, port: String, ipAddress:
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.onPrimary)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (serverRunning) "Stopping…" else "Starting…")
-                } else Text(if (serverRunning) "Stop" else "Start")
+                    Text(if (serverRunning) stringResource(R.string.stopping) else stringResource(R.string.starting))
+                } else Text(if (serverRunning) stringResource(R.string.stop) else stringResource(R.string.start))
             }
         }
     }
 }
 
 @Composable
+fun SettingsDialog(sensitivity: Float, tapDragTimeout: Int,
+                   deadzone: Float, tapTolerance: Float, clickDuration: Int,
+                   port: String,
+                   onSensitivityChange: (Float) -> Unit,
+                   onTapDragTimeoutChange: (Int) -> Unit,
+                   onDeadzoneChange: (Float) -> Unit,
+                   onTapToleranceChange: (Float) -> Unit,
+                   onClickDurationChange: (Int) -> Unit,
+                   onPortChange: (String) -> Unit,
+                   onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val curLang = context.resources.configuration.locales[0].language
+    val isZh = curLang == "zh"
+
+    fun switchLang(code: String) {
+        AppSettings.save(context, AppSettings.Settings(
+            sensitivity, tapDragTimeout, code,
+            deadzone, tapTolerance, clickDuration, port.toIntOrNull() ?: 3240))
+        (context as? android.app.Activity)?.recreate()
+    }
+
+    AlertDialog(onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // language
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.language) + ":",
+                        style = MaterialTheme.typography.bodyMedium)
+                    FilterChip(selected = isZh,
+                        onClick = { if (!isZh) switchLang("zh") },
+                        label = { Text("中文") })
+                    FilterChip(selected = !isZh,
+                        onClick = { if (isZh) switchLang("en") },
+                        label = { Text("English") })
+                }
+                HorizontalDivider()
+                // port
+                OutlinedTextField(value = port,
+                    onValueChange = { onPortChange(it.filter { c -> c.isDigit() }) },
+                    label = { Text(stringResource(R.string.port)) },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true)
+                // sensitivity
+                Text("${stringResource(R.string.sensitivity)}: ${"%.1f".format(sensitivity)}",
+                    style = MaterialTheme.typography.bodyMedium)
+                Slider(value = sensitivity, onValueChange = onSensitivityChange,
+                    valueRange = 1.0f..5.0f, steps = 7)
+                // tap drag timeout
+                Text("${stringResource(R.string.tap_drag_timeout)}: ${tapDragTimeout}ms",
+                    style = MaterialTheme.typography.bodyMedium)
+                Slider(value = tapDragTimeout.toFloat(),
+                    onValueChange = { onTapDragTimeoutChange(it.toInt()) },
+                    valueRange = 100f..1000f, steps = 8)
+                // deadzone
+                Text("${stringResource(R.string.deadzone)}: ${"%.1f".format(deadzone)}px",
+                    style = MaterialTheme.typography.bodyMedium)
+                Slider(value = deadzone,
+                    onValueChange = onDeadzoneChange,
+                    valueRange = 0f..10f, steps = 9)
+                // tap tolerance
+                Text("${stringResource(R.string.tap_tolerance)}: ${tapTolerance.toInt()}px",
+                    style = MaterialTheme.typography.bodyMedium)
+                Slider(value = tapTolerance,
+                    onValueChange = onTapToleranceChange,
+                    valueRange = 20f..150f, steps = 12)
+                // click duration
+                Text("${stringResource(R.string.click_duration)}: ${clickDuration}ms",
+                    style = MaterialTheme.typography.bodyMedium)
+                Slider(value = clickDuration.toFloat(),
+                    onValueChange = { onClickDurationChange(it.toInt()) },
+                    valueRange = 20f..200f, steps = 8)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ok)) }
+        })
+}
+
+@Composable
 fun CompactTopBar(serverRunning: Boolean, isBusy: Boolean, port: String, ipAddress: String?,
                   onToggleServer: () -> Unit, onPortChange: (String) -> Unit,
-                  onCloseKeyboard: () -> Unit, motionEnabled: Boolean,
-                  onMotionToggle: (Boolean) -> Unit) {
+                  onCloseKeyboard: () -> Unit, onSettingsClick: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -249,7 +419,7 @@ fun CompactTopBar(serverRunning: Boolean, isBusy: Boolean, port: String, ipAddre
             .background(if (serverRunning) Color(0xFF4CAF50) else Color(0xFF757575)))
         OutlinedTextField(value = port,
             onValueChange = { onPortChange(it.filter { c -> c.isDigit() }) },
-            label = { Text("Port", fontSize = 10.sp) },
+            label = { Text(stringResource(R.string.port), fontSize = 10.sp) },
             modifier = Modifier.width(64.dp), singleLine = true,
             textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
             enabled = !serverRunning && !isBusy)
@@ -262,13 +432,15 @@ fun CompactTopBar(serverRunning: Boolean, isBusy: Boolean, port: String, ipAddre
             if (isBusy) {
                 CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp,
                     color = MaterialTheme.colorScheme.onPrimary)
-            } else Text(if (serverRunning) "Stop" else "Start", fontSize = 12.sp)
+            } else Text(if (serverRunning) stringResource(R.string.stop) else stringResource(R.string.start), fontSize = 12.sp)
         }
-        Switch(checked = motionEnabled, onCheckedChange = onMotionToggle,
-            modifier = Modifier.height(24.dp))
         TextButton(onClick = onCloseKeyboard, modifier = Modifier.height(32.dp),
             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
             Text("⌨▲", fontSize = 14.sp)
+        }
+        TextButton(onClick = onSettingsClick, modifier = Modifier.height(32.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+            Text("⚙", fontSize = 16.sp)
         }
     }
 }
@@ -278,7 +450,7 @@ fun ConnectionHint(ip: String?, port: String) {
     Card(Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))) {
-        Text("Connect: usbip attach -r ${ip ?: "IP"} -b 1-1",
+        Text(stringResource(R.string.server_address_hint, ip ?: "IP"),
             modifier = Modifier.padding(12.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -368,22 +540,171 @@ fun ScrollArea(modifier: Modifier = Modifier, onScroll: (Int) -> Unit) {
 }
 
 @Composable
+fun TouchpadArea(modifier: Modifier = Modifier, tapDragTimeout: Int = 400,
+                 deadzone: Float = 2f, tapTolerance: Float = 60f, clickDuration: Int = 60) {
+    val scope = rememberCoroutineScope()
+    val dragState = remember {
+        object {
+            var pending = false
+            var tapX = 0f; var tapY = 0f
+            var timer: kotlinx.coroutines.Job? = null
+        }
+    }
+
+    fun fireClick() {
+        scope.launch {
+            FlyingMouseNative.setLeftButton(true)
+            kotlinx.coroutines.delay(clickDuration.toLong())
+            FlyingMouseNative.setLeftButton(false)
+        }
+    }
+
+    Box(modifier = modifier
+        .padding(vertical = 4.dp)
+        .clip(RoundedCornerShape(12.dp))
+        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f))
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown()
+                var pointerCount = 1
+                var secondId: androidx.compose.ui.input.pointer.PointerId? = null
+                var thirdId: androidx.compose.ui.input.pointer.PointerId? = null
+                var lastX = down.position.x
+                var lastY = down.position.y
+                var totalDist = 0f
+                var moved = false
+
+                // check if this touch continues a previous tap
+                var isDrag = false
+                if (dragState.pending) {
+                    dragState.timer?.cancel()
+                    dragState.pending = false
+                    val dx = down.position.x - dragState.tapX
+                    val dy = down.position.y - dragState.tapY
+                    if (kotlin.math.abs(dx) < tapTolerance && kotlin.math.abs(dy) < tapTolerance) {
+                        // same position → drag continuation, cancel the pending click
+                        isDrag = true
+                        FlyingMouseNative.setLeftButton(true)
+                    } else {
+                        // different position → fire the old click, this is a new gesture
+                        fireClick()
+                    }
+                }
+
+                do {
+                    val event = awaitPointerEvent()
+                    val changes = event.changes
+
+                    for (c in changes) {
+                        if (c.id != down.id && c.pressed) {
+                            when {
+                                secondId == null -> { secondId = c.id; pointerCount = 2 }
+                                thirdId == null -> { thirdId = c.id; pointerCount = 3 }
+                            }
+                        }
+                    }
+
+                    if (pointerCount >= 2 && isDrag && !moved) {
+                        FlyingMouseNative.setLeftButton(false)
+                        isDrag = false
+                    }
+
+                    val first = changes.find { it.id == down.id }
+                    if (first != null && first.pressed) {
+                        val dx = first.position.x - lastX
+                        val dy = first.position.y - lastY
+                        totalDist += kotlin.math.abs(dx) + kotlin.math.abs(dy)
+                        lastX = first.position.x
+                        lastY = first.position.y
+
+                        if (totalDist > deadzone) {
+                            moved = true
+                            if (pointerCount >= 3) {
+                                FlyingMouseNative.sendMouseWheel(dy.toInt().coerceIn(-127, 127))
+                            } else {
+                                FlyingMouseNative.sendMouseMove(dx.toInt(), dy.toInt())
+                            }
+                        }
+                        first.consume()
+                    }
+
+                    for (c in changes) {
+                        if (c.id != down.id && c.pressed) c.consume()
+                    }
+                } while (changes.any { it.pressed })
+
+                // cancel any stale pending tap
+                dragState.timer?.cancel()
+                dragState.pending = false
+
+                if (isDrag) {
+                    FlyingMouseNative.setLeftButton(false)
+                }
+                if (!moved) {
+                    when {
+                        pointerCount >= 3 -> {
+                            scope.launch {
+                                FlyingMouseNative.setMiddleButton(true)
+                                kotlinx.coroutines.delay(clickDuration.toLong())
+                                FlyingMouseNative.setMiddleButton(false)
+                            }
+                        }
+                        pointerCount >= 2 -> {
+                            scope.launch {
+                                FlyingMouseNative.setRightButton(true)
+                                kotlinx.coroutines.delay(clickDuration.toLong())
+                                FlyingMouseNative.setRightButton(false)
+                            }
+                        }
+                        else -> {
+                            // delay click — if user touches again soon, it becomes a drag instead
+                            dragState.pending = true
+                            dragState.tapX = down.position.x
+                            dragState.tapY = down.position.y
+                            dragState.timer = scope.launch {
+                                kotlinx.coroutines.delay(tapDragTimeout.toLong())
+                                if (dragState.pending) {
+                                    dragState.pending = false
+                                    fireClick()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(stringResource(R.string.touchpad), fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+            Text(stringResource(R.string.touchpad_hint), fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+        }
+    }
+}
+
+@Composable
 fun MotionControlBar(enabled: Boolean, onToggle: (Boolean) -> Unit,
                      sensitivity: Float, onSensitivityChange: (Float) -> Unit,
-                     keyboardOn: Boolean, onKeyboardToggle: () -> Unit) {
+                     keyboardOn: Boolean, onKeyboardToggle: () -> Unit,
+                     onSettingsClick: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Switch(checked = enabled, onCheckedChange = onToggle, modifier = Modifier.height(32.dp))
-        Text("Motion", style = MaterialTheme.typography.labelSmall)
-        if (enabled) {
-            Text("${"%.1f".format(sensitivity)}", style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)
-            Slider(value = sensitivity, onValueChange = onSensitivityChange,
-                valueRange = 1.0f..5.0f, modifier = Modifier.weight(1f))
-        }
+        Text(stringResource(R.string.motion), style = MaterialTheme.typography.labelSmall)
+        Text("${"%.1f".format(sensitivity)}", style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)
+        Slider(value = sensitivity, onValueChange = onSensitivityChange,
+            valueRange = 1.0f..5.0f, modifier = Modifier.weight(1f))
         TextButton(onClick = onKeyboardToggle, modifier = Modifier.height(32.dp),
             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
             Text(if (keyboardOn) "⌨▲" else "⌨", fontSize = 14.sp)
+        }
+        TextButton(onClick = onSettingsClick, modifier = Modifier.height(32.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+            Text("⚙", fontSize = 16.sp)
         }
     }
 }
@@ -506,9 +827,9 @@ private fun KeyButton(label: String, modifier: Modifier = Modifier,
                 pressed = false; onUp()
             })
         }
-        .padding(vertical = 4.dp, horizontal = 2.dp),
+        .padding(vertical = 8.dp, horizontal = 2.dp),
         contentAlignment = Alignment.Center) {
-        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+        Text(label, fontSize = 11.sp, softWrap = false, fontWeight = FontWeight.Medium,
             color = if (pressed || active) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant)
     }
