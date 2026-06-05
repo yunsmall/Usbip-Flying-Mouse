@@ -11,6 +11,8 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.os.IBinder
+import android.view.Display
+import android.view.Surface
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -167,8 +169,6 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
             AppSettings.Settings(sensitivity, tapDragTimeout, currentLang, deadzone, tapTolerance, clickDuration, portInt, scrollSpeed))
     }
 
-    MotionSensorEffect(serverRunning && motionEnabled && !showKeyboard, sensitivity)
-
     LaunchedEffect(service) {
         service?.let {
             serverRunning = it.serverRunning
@@ -178,6 +178,8 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
 
     val orientation = LocalConfiguration.current.orientation
     val isLandscape = orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    MotionSensorEffect(serverRunning && motionEnabled && !showKeyboard, sensitivity)
 
     // Shared toggle callback
     val onToggleServer: () -> Unit = {
@@ -860,10 +862,33 @@ fun MotionSensorEffect(active: Boolean, sensitivity: Float) {
         object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
                 val gx = Math.toDegrees(event.values[0].toDouble()).toFloat()
+                val gy = Math.toDegrees(event.values[1].toDouble()).toFloat()
                 val gz = Math.toDegrees(event.values[2].toDouble()).toFloat()
                 val s = currentSensitivity * currentSensitivity * 0.05f
-                val dx = (-gz * s).toInt()
-                val dy = (-gx * s).toInt()
+                val dx: Int; val dy: Int
+                val rotation = (context as? android.app.Activity)
+                    ?.windowManager?.defaultDisplay?.rotation
+                when (rotation) {
+                    Surface.ROTATION_90 -> {
+                        // landscape: top on right, USB port on left
+                        dx = (-gx * s).toInt()
+                        dy = (gy * s).toInt()
+                    }
+                    Surface.ROTATION_270 -> {
+                        // landscape: top on left, USB port on right
+                        dx = (gx * s).toInt()
+                        dy = (-gy * s).toInt()
+                    }
+                    Surface.ROTATION_0, Surface.ROTATION_180 -> {
+                        // portrait (top up / top down)
+                        dx = (-gz * s).toInt()
+                        dy = (-gx * s).toInt()
+                    }
+                    else -> {
+                        dx = (-gz * s).toInt()
+                        dy = (-gx * s).toInt()
+                    }
+                }
                 if (dx != 0 || dy != 0) FlyingMouseNative.sendMouseMove(dx, dy)
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
