@@ -63,11 +63,12 @@ object AppSettings {
     private const val KEY_TAP_TOLERANCE = "tap_tolerance"
     private const val KEY_CLICK_DURATION = "click_duration"
     private const val KEY_PORT = "port"
+    private const val KEY_SCROLL_SPEED = "scroll_speed"
 
     data class Settings(
         val sensitivity: Float, val tapTimeout: Int, val language: String,
         val deadzone: Float = 2f, val tapTolerance: Float = 60f,
-        val clickDuration: Int = 60, val port: Int = 3240)
+        val clickDuration: Int = 60, val port: Int = 3240, val scrollSpeed: Int = 1)
 
     fun load(context: Context): Settings {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -78,7 +79,8 @@ object AppSettings {
             deadzone = p.getFloat(KEY_DEADZONE, 2f),
             tapTolerance = p.getFloat(KEY_TAP_TOLERANCE, 60f),
             clickDuration = p.getInt(KEY_CLICK_DURATION, 60),
-            port = p.getInt(KEY_PORT, 3240))
+            port = p.getInt(KEY_PORT, 3240),
+            scrollSpeed = p.getInt(KEY_SCROLL_SPEED, 1))
     }
 
     fun save(context: Context, s: Settings) {
@@ -89,7 +91,8 @@ object AppSettings {
             .putFloat(KEY_DEADZONE, s.deadzone)
             .putFloat(KEY_TAP_TOLERANCE, s.tapTolerance)
             .putInt(KEY_CLICK_DURATION, s.clickDuration)
-            .putInt(KEY_PORT, s.port).apply()
+            .putInt(KEY_PORT, s.port)
+            .putInt(KEY_SCROLL_SPEED, s.scrollSpeed).apply()
     }
 
 }
@@ -148,6 +151,7 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
     var deadzone by rememberSaveable { mutableFloatStateOf(initSettings.deadzone) }
     var tapTolerance by rememberSaveable { mutableFloatStateOf(initSettings.tapTolerance) }
     var clickDuration by rememberSaveable { mutableIntStateOf(initSettings.clickDuration) }
+    var scrollSpeed by rememberSaveable { mutableIntStateOf(initSettings.scrollSpeed) }
     var showKeyboard by rememberSaveable { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     val ipAddress = remember { mutableStateOf<String?>(null) }
@@ -158,9 +162,9 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
 
     // persist settings when changed
     val portInt = port.toIntOrNull() ?: 3240
-    LaunchedEffect(sensitivity, tapDragTimeout, deadzone, tapTolerance, clickDuration, port) {
+    LaunchedEffect(sensitivity, tapDragTimeout, deadzone, tapTolerance, clickDuration, port, scrollSpeed) {
         AppSettings.save(context,
-            AppSettings.Settings(sensitivity, tapDragTimeout, currentLang, deadzone, tapTolerance, clickDuration, portInt))
+            AppSettings.Settings(sensitivity, tapDragTimeout, currentLang, deadzone, tapTolerance, clickDuration, portInt, scrollSpeed))
     }
 
     MotionSensorEffect(serverRunning && motionEnabled && !showKeyboard, sensitivity)
@@ -224,7 +228,7 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                     if (isLandscape) {
                         KeyboardSheet(Modifier.fillMaxWidth().weight(1f))
                     } else {
-                        TouchpadArea(Modifier.fillMaxWidth().weight(1f), tapDragTimeout, deadzone, tapTolerance, clickDuration)
+                        TouchpadArea(Modifier.fillMaxWidth().weight(1f), tapDragTimeout, deadzone, tapTolerance, clickDuration, scrollSpeed)
                         KeyboardSheet(Modifier.fillMaxWidth())
                     }
                 } else {
@@ -256,6 +260,7 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                             ScrollArea(
                                 modifier = Modifier.width(if (isLandscape) 24.dp else 32.dp)
                                     .height(if (isLandscape) 36.dp else 48.dp),
+                                speed = scrollSpeed,
                                 onScroll = { FlyingMouseNative.sendMouseWheel(it.coerceIn(-127, 127)) })
                         }
                     }
@@ -278,12 +283,14 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                 tapTolerance = tapTolerance,
                 clickDuration = clickDuration,
                 port = port,
+                scrollSpeed = scrollSpeed,
                 onSensitivityChange = { sensitivity = it },
                 onTapDragTimeoutChange = { tapDragTimeout = it },
                 onDeadzoneChange = { deadzone = it },
                 onTapToleranceChange = { tapTolerance = it },
                 onClickDurationChange = { clickDuration = it },
                 onPortChange = { port = it },
+                onScrollSpeedChange = { scrollSpeed = it },
                 onDismiss = { showSettings = false })
         }
     }
@@ -330,13 +337,14 @@ fun ServerCard(serverRunning: Boolean, isBusy: Boolean, port: String, ipAddress:
 @Composable
 fun SettingsDialog(sensitivity: Float, tapDragTimeout: Int,
                    deadzone: Float, tapTolerance: Float, clickDuration: Int,
-                   port: String,
+                   port: String, scrollSpeed: Int,
                    onSensitivityChange: (Float) -> Unit,
                    onTapDragTimeoutChange: (Int) -> Unit,
                    onDeadzoneChange: (Float) -> Unit,
                    onTapToleranceChange: (Float) -> Unit,
                    onClickDurationChange: (Int) -> Unit,
                    onPortChange: (String) -> Unit,
+                   onScrollSpeedChange: (Int) -> Unit,
                    onDismiss: () -> Unit) {
     val context = LocalContext.current
     val curLang = context.resources.configuration.locales[0].language
@@ -345,7 +353,7 @@ fun SettingsDialog(sensitivity: Float, tapDragTimeout: Int,
     fun switchLang(code: String) {
         AppSettings.save(context, AppSettings.Settings(
             sensitivity, tapDragTimeout, code,
-            deadzone, tapTolerance, clickDuration, port.toIntOrNull() ?: 3240))
+            deadzone, tapTolerance, clickDuration, port.toIntOrNull() ?: 3240, scrollSpeed))
         (context as? android.app.Activity)?.recreate()
     }
 
@@ -401,6 +409,12 @@ fun SettingsDialog(sensitivity: Float, tapDragTimeout: Int,
                 Slider(value = clickDuration.toFloat(),
                     onValueChange = { onClickDurationChange(it.toInt()) },
                     valueRange = 20f..200f, steps = 8)
+                // scroll speed
+                Text("${stringResource(R.string.scroll_speed)}: $scrollSpeed",
+                    style = MaterialTheme.typography.bodyMedium)
+                Slider(value = scrollSpeed.toFloat(),
+                    onValueChange = { onScrollSpeedChange(it.toInt()) },
+                    valueRange = 1f..10f, steps = 8)
             }
         },
         confirmButton = {
@@ -521,18 +535,18 @@ private fun DPadButton(label: String, keycode: Int, color: Color, modifier: Modi
 }
 
 @Composable
-fun ScrollArea(modifier: Modifier = Modifier, onScroll: (Int) -> Unit) {
+fun ScrollArea(modifier: Modifier = Modifier, speed: Int = 3, onScroll: (Int) -> Unit) {
     Column(modifier = modifier.clip(RoundedCornerShape(12.dp))
         .background(MaterialTheme.colorScheme.surfaceVariant),
         horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.fillMaxWidth().weight(1f).pointerInput(Unit) {
-                detectTapGestures(onPress = { onScroll(3); tryAwaitRelease() })
+                detectTapGestures(onPress = { onScroll(speed); tryAwaitRelease() })
             }, contentAlignment = Alignment.Center) {
             Text("▲", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Box(Modifier.fillMaxWidth().weight(1f).pointerInput(Unit) {
-                detectTapGestures(onPress = { onScroll(-3); tryAwaitRelease() })
+                detectTapGestures(onPress = { onScroll(-speed); tryAwaitRelease() })
             }, contentAlignment = Alignment.Center) {
             Text("▼", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -541,7 +555,8 @@ fun ScrollArea(modifier: Modifier = Modifier, onScroll: (Int) -> Unit) {
 
 @Composable
 fun TouchpadArea(modifier: Modifier = Modifier, tapDragTimeout: Int = 400,
-                 deadzone: Float = 2f, tapTolerance: Float = 60f, clickDuration: Int = 60) {
+                 deadzone: Float = 2f, tapTolerance: Float = 60f, clickDuration: Int = 60,
+                 scrollSpeed: Int = 1) {
     val scope = rememberCoroutineScope()
     val dragState = remember {
         object {
@@ -621,7 +636,7 @@ fun TouchpadArea(modifier: Modifier = Modifier, tapDragTimeout: Int = 400,
                         if (totalDist > deadzone) {
                             moved = true
                             if (pointerCount >= 3) {
-                                FlyingMouseNative.sendMouseWheel(dy.toInt().coerceIn(-127, 127))
+                                FlyingMouseNative.sendMouseWheel((dy.toInt() * scrollSpeed).coerceIn(-127, 127))
                             } else {
                                 FlyingMouseNative.sendMouseMove(dx.toInt(), dy.toInt())
                             }
@@ -719,6 +734,20 @@ fun KeyboardSheet(modifier: Modifier = Modifier) {
     var altOn by remember { mutableStateOf(false) }
     var winOn by remember { mutableStateOf(false) }
 
+    val up = shiftOn
+    val numKeys = (if (up) listOf("!","@","#","$","%","^","&","*","(",")")
+                  else listOf("1","2","3","4","5","6","7","8","9","0"))
+        .zip(H.NUMBERS)
+    val letterRows = listOf(
+        listOf("q","w","e","r","t","y","u","i","o","p").zip(listOf(16,22,4,17,19,24,20,8,14,15).map { L[it] }),
+        listOf("a","s","d","f","g","h","j","k","l").zip(listOf(0,18,3,5,6,7,9,10,11).map { L[it] }),
+        listOf("z","x","c","v","b","n","m").zip(listOf(25,23,2,21,1,13,12).map { L[it] }))
+    val symKeys = (if (up) listOf("_","+","{","}","|",":","\"","<",">","?")
+                   else listOf("-","=","[","]","\\",";","'",",",".","/"))
+        .zip(listOf(H.KEY_MINUS, H.KEY_EQUAL, H.KEY_LEFTBRACE, H.KEY_RIGHTBRACE, H.KEY_BACKSLASH,
+                    H.KEY_SEMICOLON, H.KEY_QUOTE, H.KEY_COMMA, H.KEY_PERIOD, H.KEY_SLASH))
+    fun dl(l: String) = if (up) l.uppercase() else l
+
     val scrollState = rememberScrollState()
     Row(modifier = modifier.clip(RoundedCornerShape(12.dp))
         .background(MaterialTheme.colorScheme.surface)
@@ -726,23 +755,15 @@ fun KeyboardSheet(modifier: Modifier = Modifier) {
         Box(Modifier.weight(1f).verticalScroll(scrollState)) {
             Column(Modifier.fillMaxWidth().padding(4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                KeyboardRow(listOf(
-                    "1" to H.NUMBERS[0], "2" to H.NUMBERS[1], "3" to H.NUMBERS[2],
-                    "4" to H.NUMBERS[3], "5" to H.NUMBERS[4], "6" to H.NUMBERS[5],
-                    "7" to H.NUMBERS[6], "8" to H.NUMBERS[7], "9" to H.NUMBERS[8], "0" to H.NUMBERS[9]))
-                KeyboardRow(listOf(
-                    "Q" to L[16], "W" to L[22], "E" to L[4], "R" to L[17], "T" to L[19],
-                    "Y" to L[24], "U" to L[20], "I" to L[8], "O" to L[14], "P" to L[15]))
-                KeyboardRow(listOf(
-                    "A" to L[0], "S" to L[18], "D" to L[3], "F" to L[5],
-                    "G" to L[6], "H" to L[7], "J" to L[9], "K" to L[10], "L" to L[11]))
+                KeyboardRow(numKeys)
+                KeyboardRow(letterRows[0].map { (l, kc) -> dl(l) to kc })
+                KeyboardRow(letterRows[1].map { (l, kc) -> dl(l) to kc })
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     KeyButton("⇧", Modifier.weight(1f), active = shiftOn,
                         onDown = { shiftOn = !shiftOn
                             FlyingMouseNative.nativeSetModifier(H.MOD_LEFT_SHIFT, shiftOn) }, onUp = {})
-                    listOf("Z" to L[25], "X" to L[23], "C" to L[2], "V" to L[21],
-                        "B" to L[1], "N" to L[13], "M" to L[12]).forEach { (l, kc) ->
-                        KeyButton(l, Modifier.weight(1f),
+                    letterRows[2].forEach { (l, kc) ->
+                        KeyButton(dl(l), Modifier.weight(1f),
                             onDown = { FlyingMouseNative.pressKey(kc) },
                             onUp = { FlyingMouseNative.releaseKey(kc) }) }
                     KeyButton("⌫", Modifier.weight(1.3f),
@@ -773,11 +794,7 @@ fun KeyboardSheet(modifier: Modifier = Modifier) {
                             onDown = { FlyingMouseNative.pressKey(kc) },
                             onUp = { FlyingMouseNative.releaseKey(kc) }) }
                 }
-                KeyboardRow(listOf(
-                    "-" to H.KEY_MINUS, "=" to H.KEY_EQUAL,
-                    "[" to H.KEY_LEFTBRACE, "]" to H.KEY_RIGHTBRACE, "\\" to H.KEY_BACKSLASH,
-                    ";" to H.KEY_SEMICOLON, "'" to H.KEY_QUOTE,
-                    "," to H.KEY_COMMA, "." to H.KEY_PERIOD, "/" to H.KEY_SLASH))
+                KeyboardRow(symKeys)
                 KeyboardRow(listOf(
                     "Esc" to H.KEY_ESC, "Tab" to H.KEY_TAB,
                     "Ins" to H.KEY_INSERT, "Del" to H.KEY_DELETE,
