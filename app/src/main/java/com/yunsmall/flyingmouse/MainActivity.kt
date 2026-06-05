@@ -225,12 +225,8 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                         onSettingsClick = { showSettings = true })
                 }
                 if (showKeyboard) {
-                    if (isLandscape) {
-                        KeyboardSheet(Modifier.fillMaxWidth().weight(1f))
-                    } else {
-                        TouchpadArea(Modifier.fillMaxWidth().weight(1f), tapDragTimeout, deadzone, tapTolerance, clickDuration, scrollSpeed)
-                        KeyboardSheet(Modifier.fillMaxWidth())
-                    }
+                    TouchpadArea(Modifier.fillMaxWidth().weight(1f), tapDragTimeout, deadzone, tapTolerance, clickDuration, scrollSpeed)
+                    KeyboardSheet(Modifier.fillMaxWidth())
                 } else {
                     Column(
                         modifier = Modifier.fillMaxWidth().weight(1f),
