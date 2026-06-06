@@ -66,11 +66,13 @@ object AppSettings {
     private const val KEY_CLICK_DURATION = "click_duration"
     private const val KEY_PORT = "port"
     private const val KEY_SCROLL_SPEED = "scroll_speed"
+    private const val KEY_TOUCH_SPEED = "touch_speed"
 
     data class Settings(
         val sensitivity: Float, val tapTimeout: Int, val language: String,
         val deadzone: Float = 2f, val tapTolerance: Float = 60f,
-        val clickDuration: Int = 60, val port: Int = 3240, val scrollSpeed: Int = 1)
+        val clickDuration: Int = 60, val port: Int = 3240,
+        val scrollSpeed: Int = 1, val touchSpeed: Float = 1f)
 
     fun load(context: Context): Settings {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -82,7 +84,8 @@ object AppSettings {
             tapTolerance = p.getFloat(KEY_TAP_TOLERANCE, 60f),
             clickDuration = p.getInt(KEY_CLICK_DURATION, 60),
             port = p.getInt(KEY_PORT, 3240),
-            scrollSpeed = p.getInt(KEY_SCROLL_SPEED, 1))
+            scrollSpeed = p.getInt(KEY_SCROLL_SPEED, 1),
+            touchSpeed = p.getFloat(KEY_TOUCH_SPEED, 1f))
     }
 
     fun save(context: Context, s: Settings) {
@@ -94,7 +97,8 @@ object AppSettings {
             .putFloat(KEY_TAP_TOLERANCE, s.tapTolerance)
             .putInt(KEY_CLICK_DURATION, s.clickDuration)
             .putInt(KEY_PORT, s.port)
-            .putInt(KEY_SCROLL_SPEED, s.scrollSpeed).apply()
+            .putInt(KEY_SCROLL_SPEED, s.scrollSpeed)
+            .putFloat(KEY_TOUCH_SPEED, s.touchSpeed).apply()
     }
 
 }
@@ -154,6 +158,7 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
     var tapTolerance by rememberSaveable { mutableFloatStateOf(initSettings.tapTolerance) }
     var clickDuration by rememberSaveable { mutableIntStateOf(initSettings.clickDuration) }
     var scrollSpeed by rememberSaveable { mutableIntStateOf(initSettings.scrollSpeed) }
+    var touchSpeed by rememberSaveable { mutableFloatStateOf(initSettings.touchSpeed) }
     var showKeyboard by rememberSaveable { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     val ipAddress = remember { mutableStateOf<String?>(null) }
@@ -164,9 +169,9 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
 
     // persist settings when changed
     val portInt = port.toIntOrNull() ?: 3240
-    LaunchedEffect(sensitivity, tapDragTimeout, deadzone, tapTolerance, clickDuration, port, scrollSpeed) {
+    LaunchedEffect(sensitivity, tapDragTimeout, deadzone, tapTolerance, clickDuration, port, scrollSpeed, touchSpeed) {
         AppSettings.save(context,
-            AppSettings.Settings(sensitivity, tapDragTimeout, currentLang, deadzone, tapTolerance, clickDuration, portInt, scrollSpeed))
+            AppSettings.Settings(sensitivity, tapDragTimeout, currentLang, deadzone, tapTolerance, clickDuration, portInt, scrollSpeed, touchSpeed))
     }
 
     LaunchedEffect(service) {
@@ -229,14 +234,13 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                     }
                 }
                 if (showKeyboard) {
-                    TouchpadArea(Modifier.fillMaxWidth().weight(1f), tapDragTimeout, deadzone, tapTolerance, clickDuration, scrollSpeed)
+                    TouchpadArea(Modifier.fillMaxWidth().weight(1f), tapDragTimeout, deadzone, tapTolerance, clickDuration, scrollSpeed, touchSpeed)
                     KeyboardSheet(Modifier.fillMaxWidth())
                 } else if (isLandscape) {
-                    // Landscape: left = motion/keyboard/settings, right = mouse buttons
+                    // Landscape three-column layout
                     Row(Modifier.fillMaxWidth().weight(1f)) {
-                        // Left column
-                        Column(Modifier.weight(1f),
-                            verticalArrangement = Arrangement.Center) {
+                        // Col 1: motion / keyboard / settings
+                        Column(verticalArrangement = Arrangement.Center) {
                             Row(verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Switch(checked = motionEnabled,
@@ -256,27 +260,33 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                                 Text("⚙", fontSize = 20.sp)
                             }
                         }
-                        // Right column: mouse buttons
-                        Row(Modifier.weight(1f).fillMaxHeight(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Row(verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                ScrollArea(
-                                    modifier = Modifier.width(40.dp).fillMaxHeight(),
-                                    speed = scrollSpeed,
-                                    onScroll = { FlyingMouseNative.sendMouseWheel(it.coerceIn(-127, 127)) })
-                                MouseButton("M", middlePressed, Color(0xFFFFB300),
-                                    onPress = { middlePressed = it; FlyingMouseNative.setMiddleButton(it) },
-                                    modifier = Modifier.size(56.dp))
+                        // Col 2: main touchpad
+                        TouchpadArea(Modifier.weight(3f).fillMaxHeight(),
+                            tapDragTimeout, deadzone, tapTolerance, clickDuration, scrollSpeed, touchSpeed)
+                        // Col 3: scroll + M + L/R
+                        Row(Modifier.fillMaxHeight(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ScrollArea(
+                                modifier = Modifier.width(40.dp).fillMaxHeight(),
+                                speed = scrollSpeed,
+                                onScroll = { FlyingMouseNative.sendMouseWheel(it.coerceIn(-127, 127)) })
+                            MouseButton("M", middlePressed, Color(0xFFFFB300),
+                                onPress = { middlePressed = it; FlyingMouseNative.setMiddleButton(it) },
+                                modifier = Modifier.size(56.dp))
+                            Column(Modifier.width(120.dp).fillMaxHeight(),
+                                verticalArrangement = Arrangement.SpaceEvenly) {
                                 MouseButton("L", leftPressed, Color(0xFF4CAF50),
                                     onPress = { leftPressed = it; FlyingMouseNative.setLeftButton(it) },
-                                    modifier = Modifier.width(120.dp).fillMaxHeight())
+                                    modifier = Modifier.fillMaxWidth().weight(1f).padding(2.dp))
                                 MouseButton("R", rightPressed, Color(0xFFE53935),
                                     onPress = { rightPressed = it; FlyingMouseNative.setRightButton(it) },
-                                    modifier = Modifier.width(120.dp).fillMaxHeight())
+                                    modifier = Modifier.fillMaxWidth().weight(1f).padding(2.dp))
                             }
                         }
+                        // Col 4: second touchpad (2/3 width of main)
+                        TouchpadArea(Modifier.weight(1.5f).fillMaxHeight(),
+                            tapDragTimeout, deadzone, tapTolerance, clickDuration, scrollSpeed, touchSpeed)
                     }
                 } else {
                     Column(
@@ -330,6 +340,7 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                 clickDuration = clickDuration,
                 port = port,
                 scrollSpeed = scrollSpeed,
+                touchSpeed = touchSpeed,
                 onSensitivityChange = { sensitivity = it },
                 onTapDragTimeoutChange = { tapDragTimeout = it },
                 onDeadzoneChange = { deadzone = it },
@@ -337,6 +348,7 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                 onClickDurationChange = { clickDuration = it },
                 onPortChange = { port = it },
                 onScrollSpeedChange = { scrollSpeed = it },
+                onTouchSpeedChange = { touchSpeed = it },
                 onDismiss = { showSettings = false })
         }
     }
@@ -383,7 +395,7 @@ fun ServerCard(serverRunning: Boolean, isBusy: Boolean, port: String, ipAddress:
 @Composable
 fun SettingsDialog(sensitivity: Float, tapDragTimeout: Int,
                    deadzone: Float, tapTolerance: Float, clickDuration: Int,
-                   port: String, scrollSpeed: Int,
+                   port: String, scrollSpeed: Int, touchSpeed: Float,
                    onSensitivityChange: (Float) -> Unit,
                    onTapDragTimeoutChange: (Int) -> Unit,
                    onDeadzoneChange: (Float) -> Unit,
@@ -391,6 +403,7 @@ fun SettingsDialog(sensitivity: Float, tapDragTimeout: Int,
                    onClickDurationChange: (Int) -> Unit,
                    onPortChange: (String) -> Unit,
                    onScrollSpeedChange: (Int) -> Unit,
+                   onTouchSpeedChange: (Float) -> Unit,
                    onDismiss: () -> Unit) {
     val context = LocalContext.current
     val curLang = context.resources.configuration.locales[0].language
@@ -399,15 +412,23 @@ fun SettingsDialog(sensitivity: Float, tapDragTimeout: Int,
     fun switchLang(code: String) {
         AppSettings.save(context, AppSettings.Settings(
             sensitivity, tapDragTimeout, code,
-            deadzone, tapTolerance, clickDuration, port.toIntOrNull() ?: 3240, scrollSpeed))
+            deadzone, tapTolerance, clickDuration, port.toIntOrNull() ?: 3240, scrollSpeed, touchSpeed))
         (context as? android.app.Activity)?.recreate()
+    }
+
+    @Composable
+    fun ResetBtn(onClick: () -> Unit) {
+        TextButton(onClick = onClick, modifier = Modifier.height(24.dp).width(32.dp),
+            contentPadding = PaddingValues(0.dp)) {
+            Text("↺", fontSize = 14.sp)
+        }
     }
 
     AlertDialog(onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.settings)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // language
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -422,45 +443,75 @@ fun SettingsDialog(sensitivity: Float, tapDragTimeout: Int,
                 }
                 HorizontalDivider()
                 // port
-                OutlinedTextField(value = port,
-                    onValueChange = { onPortChange(it.filter { c -> c.isDigit() }) },
-                    label = { Text(stringResource(R.string.port)) },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(value = port,
+                        onValueChange = { onPortChange(it.filter { c -> c.isDigit() }) },
+                        label = { Text(stringResource(R.string.port)) },
+                        modifier = Modifier.weight(1f), singleLine = true)
+                    ResetBtn { onPortChange("3240") }
+                }
                 // sensitivity
-                Text("${stringResource(R.string.sensitivity)}: ${"%.1f".format(sensitivity)}",
-                    style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${stringResource(R.string.sensitivity)}: ${"%.1f".format(sensitivity)}",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    ResetBtn { onSensitivityChange(2.0f) }
+                }
                 Slider(value = sensitivity, onValueChange = onSensitivityChange,
                     valueRange = 1.0f..5.0f, steps = 7)
                 // tap drag timeout
-                Text("${stringResource(R.string.tap_drag_timeout)}: ${tapDragTimeout}ms",
-                    style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${stringResource(R.string.tap_drag_timeout)}: ${tapDragTimeout}ms",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    ResetBtn { onTapDragTimeoutChange(400) }
+                }
                 Slider(value = tapDragTimeout.toFloat(),
                     onValueChange = { onTapDragTimeoutChange(it.toInt()) },
                     valueRange = 100f..1000f, steps = 8)
                 // deadzone
-                Text("${stringResource(R.string.deadzone)}: ${"%.1f".format(deadzone)}px",
-                    style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${stringResource(R.string.deadzone)}: ${"%.1f".format(deadzone)}px",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    ResetBtn { onDeadzoneChange(2f) }
+                }
                 Slider(value = deadzone,
                     onValueChange = onDeadzoneChange,
                     valueRange = 0f..10f, steps = 9)
                 // tap tolerance
-                Text("${stringResource(R.string.tap_tolerance)}: ${tapTolerance.toInt()}px",
-                    style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${stringResource(R.string.tap_tolerance)}: ${tapTolerance.toInt()}px",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    ResetBtn { onTapToleranceChange(60f) }
+                }
                 Slider(value = tapTolerance,
                     onValueChange = onTapToleranceChange,
                     valueRange = 20f..150f, steps = 12)
                 // click duration
-                Text("${stringResource(R.string.click_duration)}: ${clickDuration}ms",
-                    style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${stringResource(R.string.click_duration)}: ${clickDuration}ms",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    ResetBtn { onClickDurationChange(60) }
+                }
                 Slider(value = clickDuration.toFloat(),
                     onValueChange = { onClickDurationChange(it.toInt()) },
                     valueRange = 20f..200f, steps = 8)
                 // scroll speed
-                Text("${stringResource(R.string.scroll_speed)}: $scrollSpeed",
-                    style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${stringResource(R.string.scroll_speed)}: $scrollSpeed",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    ResetBtn { onScrollSpeedChange(1) }
+                }
                 Slider(value = scrollSpeed.toFloat(),
                     onValueChange = { onScrollSpeedChange(it.toInt()) },
                     valueRange = 1f..10f, steps = 8)
+                // touch speed
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${stringResource(R.string.touch_speed)}: ${"%.1f".format(touchSpeed)}",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    ResetBtn { onTouchSpeedChange(1f) }
+                }
+                Slider(value = touchSpeed,
+                    onValueChange = onTouchSpeedChange,
+                    valueRange = 0.5f..3f, steps = 4)
             }
         },
         confirmButton = {
@@ -602,7 +653,7 @@ fun ScrollArea(modifier: Modifier = Modifier, speed: Int = 3, onScroll: (Int) ->
 @Composable
 fun TouchpadArea(modifier: Modifier = Modifier, tapDragTimeout: Int = 400,
                  deadzone: Float = 2f, tapTolerance: Float = 60f, clickDuration: Int = 60,
-                 scrollSpeed: Int = 1) {
+                 scrollSpeed: Int = 1, touchSpeed: Float = 1f) {
     val scope = rememberCoroutineScope()
     val dragState = remember {
         object {
@@ -684,7 +735,7 @@ fun TouchpadArea(modifier: Modifier = Modifier, tapDragTimeout: Int = 400,
                             if (pointerCount >= 3) {
                                 FlyingMouseNative.sendMouseWheel((dy.toInt() * scrollSpeed).coerceIn(-127, 127))
                             } else {
-                                FlyingMouseNative.sendMouseMove(dx.toInt(), dy.toInt())
+                                FlyingMouseNative.sendMouseMove((dx * touchSpeed).toInt(), (dy * touchSpeed).toInt())
                             }
                         }
                         first.consume()

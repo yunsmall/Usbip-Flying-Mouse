@@ -19,6 +19,7 @@
     <string name="tap_tolerance">拖拽容差</string>
     <string name="click_duration">点击时长</string>
     <string name="scroll_speed">滚动速度</string>
+    <string name="touch_speed">触摸移动速度</string>
     <string name="ok">确定</string>
     <string name="touchpad">触摸板</string>
     <string name="touchpad_hint">单指移动/点击拖拽  双指右键  三指滚轮</string>

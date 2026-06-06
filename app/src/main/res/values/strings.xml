@@ -19,6 +19,7 @@
     <string name="tap_tolerance">Tap Tolerance</string>
     <string name="click_duration">Click Duration</string>
     <string name="scroll_speed">Scroll Speed</string>
+    <string name="touch_speed">Touch Speed</string>
     <string name="ok">OK</string>
     <string name="touchpad">Touchpad</string>
     <string name="touchpad_hint">1-finger move/click-drag  2-finger right click  3-finger scroll</string>
