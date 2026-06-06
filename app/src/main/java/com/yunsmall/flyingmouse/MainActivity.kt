@@ -221,14 +221,63 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
             if (serverRunning) {
                 if (!showKeyboard) {
                     ConnectionHint(ipAddress.value, port)
-                    MotionControlBar(motionEnabled, { motionEnabled = it },
-                        sensitivity, { sensitivity = it },
-                        showKeyboard, { showKeyboard = !showKeyboard },
-                        onSettingsClick = { showSettings = true })
+                    if (!isLandscape) {
+                        MotionControlBar(motionEnabled, { motionEnabled = it },
+                            sensitivity, { sensitivity = it },
+                            showKeyboard, { showKeyboard = !showKeyboard },
+                            onSettingsClick = { showSettings = true })
+                    }
                 }
                 if (showKeyboard) {
                     TouchpadArea(Modifier.fillMaxWidth().weight(1f), tapDragTimeout, deadzone, tapTolerance, clickDuration, scrollSpeed)
                     KeyboardSheet(Modifier.fillMaxWidth())
+                } else if (isLandscape) {
+                    // Landscape: left = motion/keyboard/settings, right = mouse buttons
+                    Row(Modifier.fillMaxWidth().weight(1f)) {
+                        // Left column
+                        Column(Modifier.weight(1f),
+                            verticalArrangement = Arrangement.Center) {
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Switch(checked = motionEnabled,
+                                    onCheckedChange = { motionEnabled = it },
+                                    modifier = Modifier.height(32.dp))
+                                Text(stringResource(R.string.motion),
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick = { showKeyboard = !showKeyboard },
+                                modifier = Modifier.height(40.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                                Text(if (showKeyboard) "⌨▲" else "⌨", fontSize = 18.sp)
+                            }
+                            TextButton(onClick = { showSettings = true },
+                                modifier = Modifier.height(40.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                                Text("⚙", fontSize = 20.sp)
+                            }
+                        }
+                        // Right column: mouse buttons
+                        Row(Modifier.weight(1f).fillMaxHeight(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                ScrollArea(
+                                    modifier = Modifier.width(40.dp).fillMaxHeight(),
+                                    speed = scrollSpeed,
+                                    onScroll = { FlyingMouseNative.sendMouseWheel(it.coerceIn(-127, 127)) })
+                                MouseButton("M", middlePressed, Color(0xFFFFB300),
+                                    onPress = { middlePressed = it; FlyingMouseNative.setMiddleButton(it) },
+                                    modifier = Modifier.size(56.dp))
+                                MouseButton("L", leftPressed, Color(0xFF4CAF50),
+                                    onPress = { leftPressed = it; FlyingMouseNative.setLeftButton(it) },
+                                    modifier = Modifier.width(120.dp).fillMaxHeight())
+                                MouseButton("R", rightPressed, Color(0xFFE53935),
+                                    onPress = { rightPressed = it; FlyingMouseNative.setRightButton(it) },
+                                    modifier = Modifier.width(120.dp).fillMaxHeight())
+                            }
+                        }
+                    }
                 } else {
                     Column(
                         modifier = Modifier.fillMaxWidth().weight(1f),
@@ -236,28 +285,27 @@ fun FlyingMouseApp(service: FlyingMouseService?) {
                         verticalArrangement = Arrangement.Center
                     ) {
                         DPad(
-                            modifier = Modifier.size(if (isLandscape) 150.dp else 200.dp),
+                            modifier = Modifier.size(200.dp),
                             onKeyDown = { FlyingMouseNative.pressKey(it) },
                             onKeyUp = { FlyingMouseNative.releaseKey(it) })
-                        Spacer(Modifier.height(if (isLandscape) 4.dp else 16.dp))
+                        Spacer(Modifier.height(16.dp))
                         Row(verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 12.dp else 24.dp)) {
+                            horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                             MouseButton("L", leftPressed, Color(0xFF4CAF50),
                                 onPress = { leftPressed = it; FlyingMouseNative.setLeftButton(it) },
-                                modifier = Modifier.width(80.dp).height(if (isLandscape) 36.dp else 48.dp))
+                                modifier = Modifier.width(80.dp).height(48.dp))
                             MouseButton("R", rightPressed, Color(0xFFE53935),
                                 onPress = { rightPressed = it; FlyingMouseNative.setRightButton(it) },
-                                modifier = Modifier.width(80.dp).height(if (isLandscape) 36.dp else 48.dp))
+                                modifier = Modifier.width(80.dp).height(48.dp))
                         }
-                        Spacer(Modifier.height(if (isLandscape) 2.dp else 8.dp))
+                        Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             MouseButton("M", middlePressed, Color(0xFFFFB300),
                                 onPress = { middlePressed = it; FlyingMouseNative.setMiddleButton(it) },
-                                modifier = Modifier.size(if (isLandscape) 32.dp else 40.dp))
+                                modifier = Modifier.size(40.dp))
                             ScrollArea(
-                                modifier = Modifier.width(if (isLandscape) 24.dp else 32.dp)
-                                    .height(if (isLandscape) 36.dp else 48.dp),
+                                modifier = Modifier.width(32.dp).height(48.dp),
                                 speed = scrollSpeed,
                                 onScroll = { FlyingMouseNative.sendMouseWheel(it.coerceIn(-127, 127)) })
                         }
@@ -702,22 +750,41 @@ fun TouchpadArea(modifier: Modifier = Modifier, tapDragTimeout: Int = 400,
 fun MotionControlBar(enabled: Boolean, onToggle: (Boolean) -> Unit,
                      sensitivity: Float, onSensitivityChange: (Float) -> Unit,
                      keyboardOn: Boolean, onKeyboardToggle: () -> Unit,
-                     onSettingsClick: () -> Unit = {}) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Switch(checked = enabled, onCheckedChange = onToggle, modifier = Modifier.height(32.dp))
-        Text(stringResource(R.string.motion), style = MaterialTheme.typography.labelSmall)
-        Text("${"%.1f".format(sensitivity)}", style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)
-        Slider(value = sensitivity, onValueChange = onSensitivityChange,
-            valueRange = 1.0f..5.0f, modifier = Modifier.weight(1f))
-        TextButton(onClick = onKeyboardToggle, modifier = Modifier.height(32.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
-            Text(if (keyboardOn) "⌨▲" else "⌨", fontSize = 14.sp)
+                     onSettingsClick: () -> Unit = {},
+                     isLandscape: Boolean = false) {
+    if (isLandscape) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Switch(checked = enabled, onCheckedChange = onToggle, modifier = Modifier.height(32.dp))
+                Text(stringResource(R.string.motion), style = MaterialTheme.typography.labelSmall)
+            }
+            TextButton(onClick = onKeyboardToggle, modifier = Modifier.height(40.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                Text(if (keyboardOn) "⌨▲" else "⌨", fontSize = 18.sp)
+            }
+            TextButton(onClick = onSettingsClick, modifier = Modifier.height(40.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                Text("⚙", fontSize = 20.sp)
+            }
         }
-        TextButton(onClick = onSettingsClick, modifier = Modifier.height(32.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
-            Text("⚙", fontSize = 16.sp)
+    } else {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Switch(checked = enabled, onCheckedChange = onToggle, modifier = Modifier.height(32.dp))
+            Text(stringResource(R.string.motion), style = MaterialTheme.typography.labelSmall)
+            Text("${"%.1f".format(sensitivity)}", style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)
+            Slider(value = sensitivity, onValueChange = onSensitivityChange,
+                valueRange = 1.0f..5.0f, modifier = Modifier.weight(1f))
+            TextButton(onClick = onKeyboardToggle, modifier = Modifier.height(40.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                Text(if (keyboardOn) "⌨▲" else "⌨", fontSize = 18.sp)
+            }
+            TextButton(onClick = onSettingsClick, modifier = Modifier.height(40.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                Text("⚙", fontSize = 20.sp)
+            }
         }
     }
 }
